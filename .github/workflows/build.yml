@@ -38,5 +38,6 @@ jobs:
           file: dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/curio-backend:latest
+          platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
