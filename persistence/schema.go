@@ -29,6 +29,7 @@ type Submission struct {
 	Name           string    `gorm:"type:text;not null" json:"name"`
 	Description    string    `gorm:"type:text;not null" json:"description"`
 	SubmissionDate time.Time `gorm:"type:date;not null" json:"submission_date"`
+	Token          string    `gorm:"type:varchar(6);not null" json:"token"`
 }
 
 type Vote struct {

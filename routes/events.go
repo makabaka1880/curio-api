@@ -21,8 +21,10 @@ import (
 func HandleEventsRoutes(r *gin.Engine) *gin.RouterGroup {
 	events := r.Group("/events")
 	events.POST("/create", middleware.AuthMiddleware, HandleEventCreation)
+	events.GET("/info/:id", HandleEventRetrieval)
 	events.DELETE("/retract/:id", middleware.AuthMiddleware, HandleEventDeletion)
 	events.GET("/list", HandleEventListing)
+	events.GET("/opened", HandleOpenEventsListing)
 	return events
 }
 
@@ -71,6 +73,27 @@ func HandleEventCreation(c *gin.Context) {
 	})
 }
 
+func HandleEventRetrieval(c *gin.Context) {
+	id := c.Param("id")
+
+	var event persistence.Event
+	result := persistence.DB.First(&event, "id=?", id)
+
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			c.JSON(404, gin.H{"error": "Event not found"})
+		} else {
+			c.JSON(500, gin.H{"error": "Database error", "spec": result.Error.Error()})
+		}
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"message": "Event retrieved successfully",
+		"data":    event,
+	})
+}
+
 func HandleEventDeletion(c *gin.Context) {
 	id := c.Param("id")
 
@@ -81,8 +104,8 @@ func HandleEventDeletion(c *gin.Context) {
 			c.JSON(404, gin.H{"error": "Event not found"})
 		} else {
 			c.JSON(500, gin.H{"error": "Database error", "spec": err.Error()})
-			return
 		}
+		return
 	}
 	persistence.DB.Delete(&persistence.Event{}, "id=?", id)
 
@@ -104,13 +127,13 @@ func HandleEventListing(c *gin.Context) {
 
 	if filterStarts != "" {
 		if t, err := time.Parse(time.RFC3339, filterStarts); err == nil {
-			query = query.Where("submission_start > ?", t)
+			query = query.Where("submission_starts >= ?", t)
 		}
 	}
 
 	if filterEnds != "" {
 		if t, err := time.Parse(time.RFC3339, filterEnds); err == nil {
-			query = query.Where("submission_end < ?", t)
+			query = query.Where("event_date <= ?", t)
 		}
 	}
 
@@ -127,6 +150,24 @@ func HandleEventListing(c *gin.Context) {
 
 	var events []persistence.Event
 	result := query.Offset(offset).Limit(ps).Find(&events)
+
+	if result.Error != nil {
+		c.JSON(500, gin.H{"error": "Database error", "details": result.Error.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"message": "Events retrieved successfully",
+		"data":    events,
+		"count":   len(events),
+	})
+}
+
+func HandleOpenEventsListing(c *gin.Context) {
+	today := time.Now()
+
+	var events []persistence.Event
+	result := persistence.DB.Where("? BETWEEN submission_starts AND event_date", today).Find(&events)
 
 	if result.Error != nil {
 		c.JSON(500, gin.H{"error": "Database error", "details": result.Error.Error()})

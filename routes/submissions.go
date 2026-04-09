@@ -13,8 +13,11 @@ import (
 	"curio-api/utils"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -22,6 +25,15 @@ import (
 	"github.com/spf13/viper"
 	"gorm.io/gorm"
 )
+
+func generateToken() string {
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, 6)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(b)
+}
 
 func HandleSubmissionsRoute(r *gin.Engine) *gin.RouterGroup {
 	submissions := r.Group("/submissions")
@@ -43,14 +55,17 @@ func HandleSingleSubmission(c *gin.Context) {
 
 	// Temp saving, ready for S3 upload
 	objName := uuid.New()
-	dst := filepath.Join("./tmp/", objName.String())
+	parts := strings.Split(artifact.Filename, ".")
+	ext := parts[len(parts)-1]
+	fileName := objName.String() + "." + ext
+	dst := filepath.Join("./tmp/", fileName)
 	contentType := "application/octet-stream"
 
 	// MARK: S3 Upload
 	c.SaveUploadedFile(artifact, dst)
 	fmt.Printf("%v, %v", name, description)
 
-	info, err := persistence.S3.FPutObject(utils.CTX, viper.GetString(utils.S3_BUCKET), objName.String(), dst, minio.PutObjectOptions{ContentType: contentType})
+	info, err := persistence.S3.FPutObject(utils.CTX, viper.GetString(utils.S3_BUCKET), fileName, dst, minio.PutObjectOptions{ContentType: contentType})
 
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to upload artifact", "spec": err.Error()})
@@ -64,11 +79,15 @@ func HandleSingleSubmission(c *gin.Context) {
 		return
 	}
 
+	token := generateToken()
+
 	persistence.DB.Create(&persistence.Submission{
-		ID:          objName,
-		EventID:     eventID,
-		Name:        name,
-		Description: description,
+		ID:             objName,
+		EventID:        eventID,
+		Name:           name,
+		Description:    description,
+		SubmissionDate: time.Now(),
+		Token:          token,
 	})
 
 	c.JSON(200, gin.H{
@@ -77,6 +96,7 @@ func HandleSingleSubmission(c *gin.Context) {
 			"id":          objName,
 			"name":        name,
 			"description": description,
+			"token":       token,
 			"artifactURL": fmt.Sprintf("https://%s/%s/%s", viper.GetString(utils.S3_ENDPOINT), viper.GetString(utils.S3_BUCKET), objName),
 			"size":        info.Size,
 		},
@@ -103,6 +123,13 @@ func HandleSingleDeletion(c *gin.Context) {
 			return
 		}
 	}
+
+	token := c.Query("token")
+	if token == "" || token != entry.Token {
+		c.JSON(400, gin.H{"error": "Invalid or missing token"})
+		return
+	}
+
 	persistence.DB.Delete(&persistence.Submission{}, "id=?", id)
 	persistence.S3.RemoveObject(utils.CTX, viper.GetString(utils.S3_BUCKET), entry.ID.String(),
 		minio.RemoveObjectOptions{
@@ -115,4 +142,8 @@ func HandleSingleDeletion(c *gin.Context) {
 			"name": entry.Name,
 		},
 	})
+}
+
+func HandleEventSubmissionQueries(c *gin.Context) {
+
 }

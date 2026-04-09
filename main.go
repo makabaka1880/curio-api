@@ -5,16 +5,19 @@ import (
 	"curio-api/routes"
 	"curio-api/utils"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	r := gin.Default()
+	r.Use(cors.Default())
 	utils.LoadConfig()
 	persistence.ConnectDB()
 	persistence.ConnectS3()
 	routes.HandleSubmissionsRoute(r)
 	routes.HandleEventsRoutes(r)
+
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "pong",
